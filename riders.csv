@@ -1,31 +1,31 @@
-Rider	Team
-Juan Ayuso	Daniel
-Mikel Landa	Daniel
-Antonio Tiberi	Daniel
-Thymen Arensman	Daniel
-Michael Storer	Daniel
-Derek Gee	Daniel
-Richard Carapaz	Daniel
-Lorenzo Fortunato	Daniel
-Giulio Ciccone	Daniel
-Joshua Tarling	Daniel
-Sam Bennett	Daniel
-Paul Magnier	Daniel
-David Gaudu	Daniel
-Milan Fretin	Daniel
-Einer Rubio	Daniel
-Primož Roglič	Tanner
-Adam Yates	Tanner
-Mads Pedersen	Tanner
-Kaden Groves	Tanner
-Wout van Aert	Tanner
-Tom Pidcock	Tanner
-Egan Bernal	Tanner
-Simon Yates	Tanner
-Olav Kooij	Tanner
-Jai Hindley	Tanner
-Daniel Felipe Martínez	Tanner
-Jay Vine	Tanner
-Isaac del Toro Romero	Tanner
-Georg Steinhauser	Tanner
-Romain Bardet	Tanner
+rider_name,owner,add_date,drop_date,is_replacement
+Juan Ayuso,Daniel,2026-01-01,,False
+Mikel Landa,Daniel,2026-01-01,,False
+Antonio Tiberi,Daniel,2026-01-01,,False
+Thymen Arensman,Daniel,2026-01-01,,False
+Michael Storer,Daniel,2026-01-01,,False
+Derek Gee,Daniel,2026-01-01,,False
+Richard Carapaz,Daniel,2026-01-01,,False
+Lorenzo Fortunato,Daniel,2026-01-01,,False
+Giulio Ciccone,Daniel,2026-01-01,,False
+Joshua Tarling,Daniel,2026-01-01,,False
+Sam Bennett,Daniel,2026-01-01,,False
+Paul Magnier,Daniel,2026-01-01,,False
+David Gaudu,Daniel,2026-01-01,,False
+Milan Fretin,Daniel,2026-01-01,,False
+Einer Rubio,Daniel,2026-01-01,,False
+Primož Roglič,Tanner,2026-01-01,,False
+Adam Yates,Tanner,2026-01-01,,False
+Mads Pedersen,Tanner,2026-01-01,,False
+Kaden Groves,Tanner,2026-01-01,,False
+Wout van Aert,Tanner,2026-01-01,,False
+Tom Pidcock,Tanner,2026-01-01,,False
+Egan Bernal,Tanner,2026-01-01,,False
+Simon Yates,Tanner,2026-01-01,,False
+Olav Kooij,Tanner,2026-01-01,,False
+Jai Hindley,Tanner,2026-01-01,,False
+Daniel Felipe Martínez,Tanner,2026-01-01,,False
+Jay Vine,Tanner,2026-01-01,,False
+Isaac del Toro Romero,Tanner,2026-01-01,,False
+Georg Steinhauser,Tanner,2026-01-01,,False
+Romain Bardet,Tanner,2026-01-01,,False
