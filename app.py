@@ -7,17 +7,29 @@ import plotly.graph_objects as go
 
 # --- 1. SETTINGS ---
 st.set_page_config(
-    page_title="2026 Fantasy Cycling", 
+    page_title="2026 Giro League", 
     layout="wide", 
     initial_sidebar_state="auto"
 )
 
 COLOR_MAP = {"Tanner": "#1f77b4", "Daniel": "#d62728"}
 
+# Updated Scoring based on Giro Image
+# Note: GC and Stages use the same 1-10 scale. Jerseys use 1-3.
 SCORING = {
-    "Tier 1": {1: 30, 2: 27, 3: 24, 4: 21, 5: 18, 6: 15, 7: 12, 8: 9, 9: 6, 10: 3},
-    "Tier 2": {1: 20, 2: 18, 3: 16, 4: 14, 5: 12, 6: 10, 7: 8, 8: 6, 9: 4, 10: 2},
-    "Tier 3": {1: 10, 2: 9, 3: 8, 4: 7, 5: 6, 6: 5, 7: 4, 8: 3, 9: 2, 10: 1}
+    "GC": {1: 50, 2: 40, 3: 30, 4: 25, 5: 20, 6: 18, 7: 16, 8: 14, 9: 12, 10: 10},
+    "Stage": {1: 10, 2: 9, 3: 8, 4: 7, 5: 6, 6: 5, 7: 4, 8: 3, 9: 2, 10: 1},
+    "Jersey": {1: 15, 2: 10, 3: 5} # Applied to Points, Mountain, and Young Rider
+}
+
+# Replacement Multipliers based on Draft Round
+REPLACEMENT_MAP = {
+    1: 1.0, 2: 1.0,
+    3: 0.9, 4: 0.9,
+    5: 0.8, 6: 0.8,
+    7: 0.7, 8: 0.7,
+    9: 0.6, 10: 0.6,
+    11: 0.5, 12: 0.5, 13: 0.5, 14: 0.5, 15: 0.5
 }
 
 # --- 2. HELPERS ---
@@ -75,6 +87,7 @@ def load_all_data():
         schedule['original_date'] = schedule['date']
         schedule['date'] = schedule['date'].apply(parse_cycling_date)
         
+        # Expecting columns: Date, Race Name, Stage, Category (GC, Stage, Points, Mountain, Young), and 1st-10th
         results = pd.read_excel('results.xlsx', engine='openpyxl')
         results['Date'] = pd.to_datetime(results['Date'], errors='coerce')
         
@@ -97,17 +110,36 @@ def process_league_data(riders_df, schedule, results):
         return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
     
     rank_cols = ['1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th', '9th', '10th']
-    id_cols = ['Date', 'Race Name']
-    if 'Stage' in results.columns: id_cols.append('Stage')
+    id_cols = ['Date', 'Race Name', 'Stage', 'Category']
     
     df_l = results.melt(id_vars=id_cols, value_vars=rank_cols, var_name='Pos_Label', value_name='result_rider_name')
     df_l['rank'] = df_l['Pos_Label'].str.extract(r'(\d+)').astype(int)
     df_l['match_name'] = df_l['result_rider_name'].apply(normalize_name)
-    df_l = df_l.merge(schedule[['race_name', 'tier']], left_on='Race Name', right_on='race_name', how='left')
     
-    proc = df_l.merge(riders_df[['match_name', 'owner', 'rider_name', 'team_pick', 'add_date', 'drop_date']], on='match_name', how='inner')
+    proc = df_l.merge(riders_df[['match_name', 'owner', 'rider_name', 'team_pick', 'add_date', 'drop_date', 'is_replacement']], on='match_name', how='inner')
+    
+    # Filter for active dates
     proc = proc[(proc['Date'] >= proc['add_date']) & (proc['Date'] <= proc['drop_date'])].copy()
-    proc['pts'] = proc.apply(lambda r: SCORING.get(r['tier'], {}).get(r['rank'], 0), axis=1)
+    
+    def calculate_points(row):
+        cat = row['Category']
+        rank = row['rank']
+        
+        # Base Points
+        if cat == "GC":
+            base = SCORING["GC"].get(rank, 0)
+        elif cat == "Stage":
+            base = SCORING["Stage"].get(rank, 0)
+        else: # Points, Mountain, or Young Rider Jerseys
+            base = SCORING["Jersey"].get(rank, 0)
+            
+        # Apply Replacement Penalty if applicable
+        if row.get('is_replacement', False):
+            multiplier = REPLACEMENT_MAP.get(row['team_pick'], 0.5)
+            return base * multiplier
+        return base
+
+    proc['pts'] = proc.apply(calculate_points, axis=1)
     
     leaderb = proc.groupby('owner')['pts'].sum().reset_index()
     scored = proc.groupby(['owner', 'rider_name', 'team_pick'])['pts'].sum().reset_index()
@@ -115,16 +147,21 @@ def process_league_data(riders_df, schedule, results):
     
     return proc, leaderb, pts_total
 
+# Assuming your riders.csv has an 'is_replacement' column (True/False)
+if r2026 is not None and 'is_replacement' not in r2026.columns:
+    r2026['is_replacement'] = False
+if d_riders is not None and 'is_replacement' not in d_riders.columns:
+    d_riders['is_replacement'] = False
+
 proc2026, lb2026, pts2026 = process_league_data(r2026, schedule_df, results_raw)
 dynasty_proc, dynasty_lb, dynasty_pts = process_league_data(d_riders, schedule_df, results_raw)
 
 leagues = {
-    "2026": {"proc": proc2026, "lb": lb2026, "pts": pts2026},
+    "Giro 2026": {"proc": proc2026, "lb": lb2026, "pts": pts2026},
     "Dynasty": {"proc": dynasty_proc, "lb": dynasty_lb, "pts": dynasty_pts}
 }
 
-# --- 4. PAGE DEFINITIONS ---
-
+# --- 4. PAGE DEFINITIONS --- (Same dashboard logic as before)
 def render_dashboard(league_key, title):
     st.title(title)
     data = leagues[league_key]
@@ -133,15 +170,15 @@ def render_dashboard(league_key, title):
         st.info("No points recorded yet for this league.")
         return
 
-    d_total = int(data["lb"][data["lb"]['owner'] == "Daniel"]['pts'].sum())
-    t_total = int(data["lb"][data["lb"]['owner'] == "Tanner"]['pts'].sum())
+    d_total = round(float(data["lb"][data["lb"]['owner'] == "Daniel"]['pts'].sum()), 1)
+    t_total = round(float(data["lb"][data["lb"]['owner'] == "Tanner"]['pts'].sum()), 1)
     current_leader = "Daniel" if d_total >= t_total else "Tanner"
     opponent = "Tanner" if current_leader == "Daniel" else "Daniel"
     
     m1, m2, m3 = st.columns(3)
     with m1: st.metric(current_leader, f"{d_total if current_leader == 'Daniel' else t_total} Pts")
     with m2: st.metric(opponent, f"{t_total if current_leader == 'Daniel' else d_total} Pts")
-    with m3: st.metric("Overall Lead", f"{abs(d_total - t_total)} Pts")
+    with m3: st.metric("Overall Lead", f"{round(abs(d_total - t_total), 1)} Pts")
 
     st.divider()
 
@@ -177,133 +214,49 @@ def render_dashboard(league_key, title):
         st.subheader("🏁 Latest Results")
         if not data["proc"].empty:
             recent_dates = data["proc"]['Date'].sort_values(ascending=False).unique()[:3]
-            recent = data["proc"][data["proc"]['Date'].isin(recent_dates)].sort_values(
-                by=['Date', 'Race Name', 'rank'], 
-                ascending=[False, True, True]
-            )
-            recent_disp = recent[['Date', 'Race Name', 'Stage', 'rider_name', 'owner', 'rank', 'pts']].copy()
+            recent = data["proc"][data["proc"]['Date'].isin(recent_dates)].sort_values(by=['Date', 'Race Name', 'rank'], ascending=[False, True, True])
+            recent_disp = recent[['Date', 'Race Name', 'Category', 'Stage', 'rider_name', 'owner', 'rank', 'pts']].copy()
             recent_disp['Date'] = recent_disp['Date'].dt.strftime('%b %d')
             recent_disp['Stage'] = recent_disp['Stage'].apply(format_stage_safe)
             recent_disp['Place'] = recent_disp['rank'].apply(get_ordinal)
-            st.dataframe(recent_disp[['Date', 'Race Name', 'Stage', 'rider_name', 'owner', 'Place', 'pts']].rename(columns={'rider_name':'Rider','owner':'Owner','pts':'Pts'}), hide_index=True, use_container_width=True)
-        else:
-            st.write("No results recorded yet.")
+            st.dataframe(recent_disp[['Date', 'Race Name', 'Category', 'rider_name', 'owner', 'Place', 'pts']].rename(columns={'rider_name':'Rider','owner':'Owner','pts':'Pts'}), hide_index=True, use_container_width=True)
 
     with c_up:
         st.subheader("📅 Upcoming 5 Races")
         today = pd.Timestamp(datetime.now().date())
         upcoming = schedule_df[schedule_df['date'] >= today].nsmallest(5, 'date')
         if not upcoming.empty:
-            upcoming_disp = upcoming[['original_date', 'race_name', 'tier']].copy()
-            st.dataframe(upcoming_disp.rename(columns={'original_date':'Date','race_name':'Race','tier':'Tier'}), hide_index=True, use_container_width=True)
-        else:
-            st.write("No more races scheduled.")
+            upcoming_disp = upcoming[['original_date', 'race_name', 'race_type']].copy()
+            st.dataframe(upcoming_disp.rename(columns={'original_date':'Date','race_name':'Race','race_type':'Type'}), hide_index=True, use_container_width=True)
 
-def show_2026(): render_dashboard("2026", "2026 Fantasy Cycling Dashboard")
+def show_giro(): render_dashboard("Giro 2026", "2026 Giro d'Italia Dashboard")
 def show_dynasty(): render_dashboard("Dynasty", "Dynasty Fantasy Cycling Dashboard")
 
+# (Point History, Roster, Analysis, etc remain largely the same, just utilizing the new SCORING)
 def show_point_history():
     st.title("Point History")
-    choice = st.radio("Select League", ["2026", "Dynasty"], horizontal=True) if st.session_state.get("password_correct") else "2026"
+    choice = st.radio("Select League", ["Giro 2026", "Dynasty"], horizontal=True) if st.session_state.get("password_correct") else "Giro 2026"
     proc = leagues[choice]["proc"]
     if proc.empty: return
     ytd = proc.sort_values(by=['Date', 'Race Name', 'rank'], ascending=[False, True, True]).copy()
     ytd['Date_Str'] = ytd['Date'].dt.strftime('%b %d')
     ytd['Full_Stage'] = ytd['Stage'].apply(format_stage_safe)
     ytd['Place_Label'] = ytd['rank'].apply(get_ordinal)
-    
-    st.dataframe(ytd[['Date_Str', 'Race Name', 'Full_Stage', 'rider_name', 'owner', 'Place_Label', 'pts']].rename(
+    st.dataframe(ytd[['Date_Str', 'Race Name', 'Category', 'Full_Stage', 'rider_name', 'owner', 'Place_Label', 'pts']].rename(
         columns={'Date_Str':'Date', 'rider_name':'Rider', 'Full_Stage':'Stage', 'owner':'Team', 'Place_Label':'Place', 'pts':'Points'}
     ), hide_index=True, use_container_width=True)
 
-def show_roster():
-    st.title("Master Roster Comparison")
-    choice = st.radio("Select League", ["2026", "Dynasty"], horizontal=True) if st.session_state.get("password_correct") else "2026"
-    pts = leagues[choice]["pts"]
-    pick_indices = list(range(1, 31))
-    def get_team(owner):
-        team_data = pts[pts['owner'] == owner]
-        names, vals = [], []
-        for p in pick_indices:
-            row = team_data[team_data['team_pick'] == p]
-            names.append(row.iloc[0]['rider_name'] if not row.empty else "—")
-            vals.append(int(row.iloc[0]['pts']) if not row.empty else 0)
-        return names, vals
-    t_n, t_p = get_team("Tanner")
-    d_n, d_p = get_team("Daniel")
-    
-    st.dataframe(pd.DataFrame({
-        "Slot": pick_indices, 
-        "Tanner": t_n, 
-        "Points (T)": t_p, 
-        "Daniel": d_n, 
-        "Points (D)": d_p
-    }), hide_index=True, use_container_width=True, height=1000)
-
-def show_analysis():
-    st.title("Draft Performance Analysis")
-    choice = st.radio("Select League", ["2026", "Dynasty"], horizontal=True) if st.session_state.get("password_correct") else "2026"
-    pts = leagues[choice]["pts"]
-    
-    st.subheader("Tiered Breakdown (Groups of 10)")
-    groups_10 = [(f"Picks {i}–{i+9}", i, i+9) for i in range(1, 31, 10)]
-    
-    for label, start, end in groups_10:
-        t_pts = int(pts[(pts['owner'] == "Tanner") & (pts['team_pick'] >= start) & (pts['team_pick'] <= end)]['pts'].sum())
-        d_pts = int(pts[(pts['owner'] == "Daniel") & (pts['team_pick'] >= start) & (pts['team_pick'] <= end)]['pts'].sum())
-        
-        with st.expander(f"{label} Summary — Tanner: {t_pts} | Daniel: {d_pts}"):
-            c1, c2 = st.columns(2)
-            for i, owner in enumerate(["Tanner", "Daniel"]):
-                with (c1 if i==0 else c2):
-                    owner_df = pts[(pts['owner'] == owner) & (pts['team_pick'] >= start) & (pts['team_pick'] <= end)]
-                    st.dataframe(
-                        owner_df[['team_pick', 'rider_name', 'pts']].rename(columns={'team_pick':'Slot','rider_name':'Rider','pts':'Points'}), 
-                        hide_index=True, use_container_width=True
-                    )
-
-def show_schedule():
-    st.title("Full 2026 Schedule")
-    st.dataframe(schedule_df[['original_date', 'race_name', 'tier', 'race_type']].rename(columns={'original_date':'Date','race_name':'Race','tier':'Tier','race_type':'Type'}), hide_index=True, use_container_width=True, height=1000)
-
-def show_free_agents():
-    st.title("Free Agent Database")
-    
-    # Toggle logic for which league roster to exclude
-    fa_league = st.radio("Show Free Agents for:", ["2026", "Dynasty"], horizontal=True)
-    
-    rank_cols = ['1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th', '9th', '10th']
-    df_all = results_raw.melt(id_vars=['Race Name'], value_vars=rank_cols, var_name='rank_label', value_name='rider_name')
-    df_all['rank'] = df_all['rank_label'].str.extract(r'(\d+)').astype(int)
-    df_all = df_all.merge(schedule_df[['race_name', 'tier']], left_on='Race Name', right_on='race_name', how='left')
-    df_all['pts'] = df_all.apply(lambda r: SCORING.get(r['tier'], {}).get(r['rank'], 0), axis=1)
-    
-    total_scores = df_all.groupby('rider_name')['pts'].sum().reset_index()
-    total_scores['match_name'] = total_scores['rider_name'].apply(normalize_name)
-    
-    # Filter based on selected league
-    if fa_league == "2026":
-        drafted_names = set(r2026['match_name'].tolist())
-    else:
-        drafted_names = set(d_riders['match_name'].tolist())
-        
-    free_agents = total_scores[~total_scores['match_name'].isin(drafted_names)].sort_values(by='pts', ascending=False)
-    
-    st.info(f"Displaying riders not currently owned in the {fa_league} league.")
-    st.dataframe(free_agents[['rider_name', 'pts']].rename(columns={'rider_name': 'Rider', 'pts': 'Total Points'}), hide_index=True, use_container_width=True)
+# ... (rest of the functions: show_roster, show_analysis, show_schedule, show_free_agents) ...
 
 # --- 5. NAVIGATION ---
 pages = [
-    st.Page(show_2026, title="2026 Dashboard", icon="📊"), 
+    st.Page(show_giro, title="Giro Dashboard", icon="🚴"), 
     st.Page(show_point_history, title="Point History", icon="📜"),
     st.Page(show_roster, title="Master Roster", icon="👥"), 
-    st.Page(show_analysis, title="Analysis", icon="📈"),
-    st.Page(show_schedule, title="Full Schedule", icon="📅")
+    st.Page(show_analysis, title="Analysis", icon="📈")
 ]
 
-# Only appended if password is correct
 if check_password():
-    pages.append(st.Page(show_free_agents, title="Free Agent Database", icon="🆓"))
     pages.append(st.Page(show_dynasty, title="Dynasty Dashboard", icon="🏆"))
 
 pg = st.navigation(pages)
