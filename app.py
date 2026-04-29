@@ -64,6 +64,8 @@ def load_data():
             for prefix, cat_name in jersey_types:
                 for i in range(1, 4):
                     col = f'{prefix}{i}'
+                    if col in jersey_types: # Safety check
+                        pass
                     if col in stage_data.columns:
                         temp = stage_data[['Stage', col]].copy().rename(columns={col: 'res_rider'})
                         temp['rank'], temp['Category'] = i, cat_name
@@ -105,7 +107,7 @@ def get_timeline_data():
             history.append({"Stage": s, "owner": owner, "Total Points": t})
     return pd.DataFrame(history)
 
-# --- 4. VIEWS ---
+# --- 3. VIEWS ---
 
 def show_dashboard():
     st.title(f"📊 2026 Giro Standings (Stage {current_stage})")
@@ -114,7 +116,6 @@ def show_dashboard():
     timeline_df = get_timeline_data()
     latest_scores = timeline_df[timeline_df['Stage'] == current_stage]
 
-    # Metrics
     c1, c2, c3 = st.columns(3)
     d_pts = latest_scores[latest_scores['owner'] == "Daniel"]['Total Points'].sum()
     t_pts = latest_scores[latest_scores['owner'] == "Tanner"]['Total Points'].sum()
@@ -124,13 +125,11 @@ def show_dashboard():
 
     st.divider()
     
-    # Timeline Chart
     fig = px.line(timeline_df, x="Stage", y="Total Points", color="owner", markers=True,
                   color_discrete_map={"Daniel": "red", "Tanner": "blue"})
     fig.update_layout(xaxis=dict(tickmode='linear', tick0=1, dtick=1))
     st.plotly_chart(fig, use_container_width=True)
 
-    # Dashboard Breakdown Tables (Split)
     st.subheader("Point Source Breakdown")
     current_snap = proc_data[
         ((proc_data['Category'] == 'Stage Result') & (proc_data['Stage'] <= current_stage)) |
@@ -151,21 +150,35 @@ def show_history():
     st.title("📜 Stage Standings Snapshot")
     selected_stage = st.selectbox("Select Stage:", sorted(proc_data['Stage'].unique(), reverse=True))
     
+    # 1. Filter data for the snapshot
     snap = proc_data[
         ((proc_data['Category'] == 'Stage Result') & (proc_data['Stage'] <= selected_stage)) |
         ((proc_data['Category'] != 'Stage Result') & (proc_data['Stage'] == selected_stage))
-    ]
+    ].copy()
 
+    # 2. Define custom sort order for Categories
+    # We group all "Jersey" types together in the sorting logic
+    def sort_logic(cat):
+        if cat == "GC Standing": return 0
+        if cat == "Stage Result": return 1
+        return 2 # Covers Points, Mountain, and Youth Jerseys
+
+    snap['sort_key'] = snap['Category'].apply(sort_logic)
+    
     col1, col2 = st.columns(2)
     for i, owner in enumerate(["Daniel", "Tanner"]):
         with (col1 if i==0 else col2):
-            st.subheader(f"{owner} - Stage {selected_stage}")
-            owner_snap = snap[snap['owner'] == owner].sort_values('pts', ascending=False)
-            st.dataframe(owner_snap[['Category', 'rider_name', 'pts']], use_container_width=True, hide_index=True)
+            st.subheader(f"{owner}")
+            owner_snap = snap[snap['owner'] == owner].sort_values(['sort_key', 'pts'], ascending=[True, False])
+            # Displaying clean columns
+            st.dataframe(
+                owner_snap[['Category', 'rider_name', 'pts']].rename(columns={'pts': 'Points', 'rider_name': 'Rider'}), 
+                use_container_width=True, 
+                hide_index=True
+            )
 
 def show_rosters():
     st.title("👥 Team Rosters")
-    # Total points per rider in current context (Banked + CURRENT Floating)
     current_snap = proc_data[
         ((proc_data['Category'] == 'Stage Result') & (proc_data['Stage'] <= current_stage)) |
         ((proc_data['Category'] != 'Stage Result') & (proc_data['Stage'] == current_stage))
