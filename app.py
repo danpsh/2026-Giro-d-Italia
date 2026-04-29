@@ -39,9 +39,10 @@ def load_data():
 
         # 2. Load Results
         res = pd.read_excel('results.xlsx', engine='openpyxl')
+        latest_stage = res['Stage'].max()
         all_results = []
 
-        # Stage Results
+        # --- STAGE RESULTS (Cumulative) ---
         stage_cols = ['1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th', '9th', '10th']
         for i, col in enumerate(stage_cols, 1):
             if col in res.columns:
@@ -49,21 +50,22 @@ def load_data():
                 temp['rank'], temp['Category'] = i, 'Stage Result'
                 all_results.append(temp)
 
-        # GC Standings
+        # --- GC & JERSEYS (Latest Stage Only) ---
+        latest_res = res[res['Stage'] == latest_stage].copy()
+        
         for i in range(1, 11):
             col = f'GC #{i}'
-            if col in res.columns:
-                temp = res[['Stage', col]].copy().rename(columns={col: 'res_rider'})
+            if col in latest_res.columns:
+                temp = latest_res[['Stage', col]].copy().rename(columns={col: 'res_rider'})
                 temp['rank'], temp['Category'] = i, 'GC Standing'
                 all_results.append(temp)
 
-        # Jerseys
         jersey_types = [('Points #', 'Points Jersey'), ('Mountain #', 'Mountain Jersey'), ('Youth #', 'Youth Jersey')]
         for prefix, cat_name in jersey_types:
             for i in range(1, 4):
                 col = f'{prefix}{i}'
-                if col in res.columns:
-                    temp = res[['Stage', col]].copy().rename(columns={col: 'res_rider'})
+                if col in latest_res.columns:
+                    temp = latest_res[['Stage', col]].copy().rename(columns={col: 'res_rider'})
                     temp['rank'], temp['Category'] = i, cat_name
                     all_results.append(temp)
 
@@ -89,27 +91,26 @@ def load_data():
         scored = proc.groupby(['owner', 'rider_name', 'team_pick'])['pts'].sum().reset_index()
         roster_summary = r_df[['owner', 'rider_name', 'team_pick']].merge(scored, on=['owner', 'rider_name', 'team_pick'], how='left').fillna(0)
         
-        return proc, lb, roster_summary
+        return proc, lb, roster_summary, latest_stage
 
     except Exception as e:
         st.error(f"Data Error: {e}")
-        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), 0
 
-# Load Data Once
-proc_data, leaderboard, roster_pts = load_data()
+# Initial Data Load
+proc_data, leaderboard, roster_pts, current_stage = load_data()
 
 # --- 3. VIEWS ---
 
 def show_dashboard():
-    st.title("📊 2026 Giro Standings")
+    st.title(f"📊 2026 Giro Standings (Stage {current_stage})")
     if proc_data.empty:
-        st.info("Ensure riders.csv and results.xlsx are present to see standings.")
+        st.info("Upload your riders.csv and results.xlsx to see the data.")
         return
 
-    # Dynamic Metrics
+    # Metrics
     owners = leaderboard['owner'].unique()
     cols = st.columns(len(owners) + 1)
-    
     owner_totals = {}
     for i, owner in enumerate(owners):
         pts = leaderboard.loc[leaderboard['owner'] == owner, 'pts'].sum()
@@ -122,38 +123,50 @@ def show_dashboard():
 
     st.divider()
 
+    # Points Breakdown Table
+    st.subheader("Point Source Summary")
+    display_df = proc_data.copy()
+    display_df['Source'] = display_df['Category'].apply(lambda x: "Jerseys" if "Jersey" in x else x)
+    
+    cat_summary = display_df.groupby(['owner', 'Source'])['pts'].sum().unstack(fill_value=0)
+    cat_summary['Total'] = cat_summary.sum(axis=1)
+    st.dataframe(cat_summary.sort_values('Total', ascending=False), use_container_width=True)
+
+    # Stacked Bar Chart
+    fig_stack = px.bar(
+        display_df.groupby(['owner', 'Source'])['pts'].sum().reset_index(),
+        x='owner', y='pts', color='Source',
+        title="Points Distribution",
+        barmode='stack',
+        color_discrete_map={"Stage Result": "#00CC96", "GC Standing": "#EF553B", "Jerseys": "#636EFA"}
+    )
+    st.plotly_chart(fig_stack, use_container_width=True)
+
+    st.divider()
+
     # Timeline Chart
     timeline = proc_data.groupby(['Stage', 'owner'])['pts'].sum().unstack(fill_value=0).cumsum()
     if not timeline.empty:
-        fig = px.line(timeline, title="Cumulative Points Progression", markers=True, 
-                      color_discrete_map={"Daniel": "#EF553B", "Tanner": "#636EFA"})
-        st.plotly_chart(fig, use_container_width=True)
+        fig_line = px.line(timeline, title="Cumulative Points Progression", markers=True)
+        st.plotly_chart(fig_line, use_container_width=True)
 
 def show_breakdown():
-    st.title("🏆 Points Breakdown")
-    if proc_data.empty:
-        st.info("No data available.")
-        return
-
-    tab1, tab2, tab3 = st.tabs(["Stage Results", "GC Standings", "Jerseys"])
+    st.title("🏆 Detailed Category Breakdown")
+    st.caption(f"Stage results are cumulative. GC and Jersey points reflect standings from **Stage {current_stage}**.")
+    
+    tab1, tab2, tab3 = st.tabs(["Stage Placements", "Current GC", "Current Jerseys"])
 
     with tab1:
-        st.subheader("🏁 Stage Placement Points")
         df = proc_data[proc_data['Category'] == 'Stage Result']
-        res = df.groupby(['owner', 'rider_name'])['pts'].sum().reset_index().sort_values('pts', ascending=False)
-        st.dataframe(res, use_container_width=True, hide_index=True)
+        st.dataframe(df.groupby(['owner', 'rider_name'])['pts'].sum().reset_index().sort_values('pts', ascending=False), use_container_width=True, hide_index=True)
 
     with tab2:
-        st.subheader("💗 GC Standing Points")
         df = proc_data[proc_data['Category'] == 'GC Standing']
-        res = df.groupby(['owner', 'rider_name'])['pts'].sum().reset_index().sort_values('pts', ascending=False)
-        st.dataframe(res, use_container_width=True, hide_index=True)
+        st.dataframe(df.groupby(['owner', 'rider_name'])['pts'].sum().reset_index().sort_values('pts', ascending=False), use_container_width=True, hide_index=True)
 
     with tab3:
-        st.subheader("👕 Jersey Points (Points, KOM, Youth)")
         df = proc_data[proc_data['Category'].str.contains('Jersey')]
-        res = df.groupby(['owner', 'rider_name', 'Category'])['pts'].sum().reset_index().sort_values('pts', ascending=False)
-        st.dataframe(res, use_container_width=True, hide_index=True)
+        st.dataframe(df.groupby(['owner', 'rider_name', 'Category'])['pts'].sum().reset_index().sort_values('pts', ascending=False), use_container_width=True, hide_index=True)
 
 def show_history():
     st.title("📜 Full Point History")
@@ -164,8 +177,7 @@ def show_history():
 def show_rosters():
     st.title("👥 Team Rosters")
     col1, col2 = st.columns(2)
-    owners = ["Daniel", "Tanner"]
-    for i, owner in enumerate(owners):
+    for i, owner in enumerate(["Daniel", "Tanner"]):
         with (col1 if i==0 else col2):
             st.subheader(owner)
             df = roster_pts[roster_pts['owner'] == owner].sort_values('team_pick')
