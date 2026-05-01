@@ -44,7 +44,7 @@ def load_data():
         for s in all_stages:
             stage_data = res[res['Stage'] == s]
             
-            # A. Daily Stage Results (Banked every stage)
+            # A. Daily Stage Results
             stage_cols = ['1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th', '9th', '10th']
             for i, col in enumerate(stage_cols, 1):
                 if col in stage_data.columns:
@@ -52,9 +52,8 @@ def load_data():
                     temp['rank'], temp['Category'] = i, 'Stage Result'
                     all_results.append(temp)
 
-            # B. GC & Jerseys (ONLY extracted on the final stage)
+            # B. GC & Jerseys (ONLY on Stage 21)
             if s == 21:
-                # GC Standings
                 for i in range(1, 11):
                     col = f'GC #{i}'
                     if col in stage_data.columns:
@@ -62,7 +61,6 @@ def load_data():
                         temp['rank'], temp['Category'] = i, 'GC Standing'
                         all_results.append(temp)
 
-                # Jersey Standings
                 jersey_types = [('Points #', 'Points Jersey'), ('Mountain #', 'Mountain Jersey'), ('Youth #', 'Youth Jersey')]
                 for prefix, cat_name in jersey_types:
                     for i in range(1, 4):
@@ -72,13 +70,10 @@ def load_data():
                             temp['rank'], temp['Category'] = i, cat_name
                             all_results.append(temp)
 
-        if not all_results:
-            return pd.DataFrame(), r_df, 0
+        if not all_results: return pd.DataFrame(), r_df, 0
             
         df_l = pd.concat(all_results, ignore_index=True)
         df_l['match_name'] = df_l['res_rider'].apply(normalize_name)
-        
-        # Merge with rider list to assign owners
         proc = df_l.merge(r_df[['match_name', 'owner', 'rider_name', 'team_pick', 'is_replacement']], on='match_name', how='inner')
 
         def calc_pts(row):
@@ -86,14 +81,11 @@ def load_data():
             if cat == "GC Standing": base = SCORING["GC Standing"].get(rank, 0)
             elif cat == "Stage Result": base = SCORING["Stage Result"].get(rank, 0)
             else: base = SCORING["Jersey"].get(rank, 0) 
-            
-            if row['is_replacement']: 
-                return base * REPLACEMENT_MAP.get(row['team_pick'], 0.5)
+            if row['is_replacement']: return base * REPLACEMENT_MAP.get(row['team_pick'], 0.5)
             return base
 
         proc['pts'] = proc.apply(calc_pts, axis=1)
         return proc, r_df, latest_stage
-
     except Exception as e:
         st.error(f"Data Error: {e}")
         return pd.DataFrame(), pd.DataFrame(), 0
@@ -105,14 +97,10 @@ def get_timeline_data():
     history = []
     stages = sorted(proc_data['Stage'].unique())
     for s in stages:
-        # Sum all stage result points up to this day
         banked_pts = proc_data[(proc_data['Stage'] <= s) & (proc_data['Category'] == 'Stage Result')]
         banked_total = banked_pts.groupby('owner')['pts'].sum()
-        
-        # GC/Jerseys only apply if we have reached stage 21
         floating_pts = proc_data[(proc_data['Stage'] == s) & (proc_data['Category'] != 'Stage Result')]
         floating_total = floating_pts.groupby('owner')['pts'].sum()
-        
         for owner in ["Daniel", "Tanner"]:
             t = banked_total.get(owner, 0) + floating_total.get(owner, 0)
             history.append({"Stage": s, "owner": owner, "Total Points": t})
@@ -122,8 +110,8 @@ def get_timeline_data():
 
 def show_dashboard():
     st.title(f"📊 2026 Giro Standings (Stage {current_stage})")
-    if proc_data.empty: 
-        st.warning("No data found in results.xlsx")
+    if proc_data.empty:
+        st.info("Waiting for results.xlsx data...")
         return
 
     timeline_df = get_timeline_data()
@@ -137,91 +125,52 @@ def show_dashboard():
     c3.metric("Gap", f"{abs(d_pts - t_pts):,.1f}")
 
     st.divider()
-    
     fig = px.line(timeline_df, x="Stage", y="Total Points", color="owner", markers=True,
-                  color_discrete_map={"Daniel": "red", "Tanner": "blue"},
-                  title="Points Progression")
+                  color_discrete_map={"Daniel": "red", "Tanner": "blue"})
     fig.update_layout(xaxis=dict(tickmode='linear', tick0=1, dtick=1))
     st.plotly_chart(fig, use_container_width=True)
 
-    st.subheader("Point Source Breakdown")
-    # Current snap looks at all stage results so far + any GC/Jerseys earned on the current stage
-    current_snap = proc_data[
-        ((proc_data['Category'] == 'Stage Result') & (proc_data['Stage'] <= current_stage)) |
-        ((proc_data['Category'] != 'Stage Result') & (proc_data['Stage'] == current_stage))
-    ].copy()
-    current_snap['Source'] = current_snap['Category'].apply(lambda x: "Jerseys" if "Jersey" in x else x)
-    
-    col1, col2 = st.columns(2)
-    for i, owner in enumerate(["Daniel", "Tanner"]):
-        with (col1 if i==0 else col2):
-            st.markdown(f"#### {owner}")
-            owner_df = current_snap[current_snap['owner'] == owner]
-            if not owner_df.empty:
-                summary = owner_df.groupby('Source')['pts'].sum().reset_index()
-                summary.loc[len(summary)] = ['Total', summary['pts'].sum()]
-                st.dataframe(summary, use_container_width=True, hide_index=True)
-            else:
-                st.write("No points yet.")
-
-def show_history():
-    st.title("📜 Stage Standings Snapshot")
-    if proc_data.empty: return
-    
-    available_stages = sorted(proc_data['Stage'].unique(), reverse=True)
-    selected_stage = st.selectbox("Select Stage View:", available_stages)
-    
-    snap = proc_data[
-        ((proc_data['Category'] == 'Stage Result') & (proc_data['Stage'] <= selected_stage)) |
-        ((proc_data['Category'] != 'Stage Result') & (proc_data['Stage'] == selected_stage))
-    ].copy()
-
-    def sort_logic(cat):
-        if cat == "GC Standing": return 0
-        if cat == "Stage Result": return 1
-        return 2 
-
-    snap['sort_key'] = snap['Category'].apply(sort_logic)
-    
-    col1, col2 = st.columns(2)
-    for i, owner in enumerate(["Daniel", "Tanner"]):
-        with (col1 if i==0 else col2):
-            st.subheader(f"{owner}")
-            owner_snap = snap[snap['owner'] == owner].sort_values(['sort_key', 'pts'], ascending=[True, False])
-            st.dataframe(
-                owner_snap[['Category', 'rider_name', 'pts']].rename(columns={'pts': 'Points', 'rider_name': 'Rider'}), 
-                use_container_width=True, 
-                hide_index=True
-            )
-
 def show_rosters():
-    st.title("👥 Team Rosters")
+    st.title("👥 Detailed Rider Breakdowns")
+    
     if proc_data.empty:
-        # Show basic roster from riders.csv if no results yet
-        col1, col2 = st.columns(2)
-        for i, owner in enumerate(["Daniel", "Tanner"]):
-            with (col1 if i==0 else col2):
-                st.subheader(owner)
-                st.dataframe(riders[riders['owner'] == owner][['rider_name']], use_container_width=True, hide_index=True)
+        st.warning("No scoring data available yet.")
         return
 
-    current_snap = proc_data[
-        ((proc_data['Category'] == 'Stage Result') & (proc_data['Stage'] <= current_stage)) |
-        ((proc_data['Category'] != 'Stage Result') & (proc_data['Stage'] == current_stage))
-    ]
-    rider_pts = current_snap.groupby(['owner', 'rider_name'])['pts'].sum().reset_index()
-    
     col1, col2 = st.columns(2)
+    
     for i, owner in enumerate(["Daniel", "Tanner"]):
         with (col1 if i==0 else col2):
-            st.subheader(owner)
-            df = rider_pts[rider_pts['owner'] == owner].sort_values('pts', ascending=False)
-            st.dataframe(df[['rider_name', 'pts']].rename(columns={'rider_name':'Rider','pts':'Points'}), use_container_width=True, hide_index=True)
+            st.header(f"Team {owner}")
+            
+            # Get all riders for this owner
+            owner_riders = riders[riders['owner'] == owner].copy()
+            
+            # Calculate total points per rider
+            rider_totals = proc_data[proc_data['owner'] == owner].groupby('rider_name')['pts'].sum().reset_index()
+            owner_riders = owner_riders.merge(rider_totals, on='rider_name', how='left').fillna(0)
+            owner_riders = owner_riders.sort_values('pts', ascending=False)
+
+            for _, r_row in owner_riders.iterrows():
+                r_name = r_row['rider_name']
+                r_pts = r_row['pts']
+                is_rep = " (Replacement)" if r_row['is_replacement'] else ""
+                
+                # Create an expander for each rider
+                with st.expander(f"**{r_name}** — {r_pts:,.1f} pts{is_rep}"):
+                    # Get specific point instances for this rider
+                    details = proc_data[proc_data['rider_name'] == r_name][['Stage', 'Category', 'rank', 'pts']].copy()
+                    if not details.empty:
+                        details = details.sort_values(['Stage', 'Category'])
+                        # Formatting for display
+                        details.columns = ['Stage', 'Type', 'Rank', 'Points']
+                        st.dataframe(details, use_container_width=True, hide_index=True)
+                    else:
+                        st.write("No points scored yet.")
 
 # --- NAVIGATION ---
 pg = st.navigation([
     st.Page(show_dashboard, title="Standings", icon="📊"),
-    st.Page(show_history, title="Stage Snapshots", icon="📜"),
-    st.Page(show_rosters, title="Teams", icon="👥")
+    st.Page(show_rosters, title="Rider Breakdowns", icon="👥")
 ])
 pg.run()
