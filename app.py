@@ -39,8 +39,7 @@ def load_data():
         res = pd.read_excel('results.xlsx', engine='openpyxl')
         all_stages = sorted(res['Stage'].unique())
         latest_stage = max(all_stages)
-        all_results = []
-
+        
         raw_results_list = []
         for s in all_stages:
             stage_data = res[res['Stage'] == s]
@@ -68,6 +67,7 @@ def load_data():
         df_all_raw = pd.DataFrame(raw_results_list)
         df_all_raw['match_name'] = df_all_raw['res_rider'].apply(normalize_name)
 
+        # Scored Data (Fantasy Owners Only)
         proc = df_all_raw.merge(r_df[['match_name', 'owner', 'rider_name', 'team_pick', 'is_replacement']], on='match_name', how='inner')
 
         def calc_pts(row, apply_replacement=True):
@@ -99,25 +99,22 @@ proc_data, riders, current_stage, best_unpicked = load_data()
 def show_dashboard():
     st.title(f"🏆 2026 Giro Standings (Stage {current_stage})")
     if proc_data.empty: 
-        st.info("No data available.")
+        st.info("No data available in results.xlsx.")
         return
 
-    # Final Standings Calculation
+    # 1. FINAL STANDINGS METRICS
     standings = proc_data.groupby('owner')['pts'].sum().reset_index().sort_values('pts', ascending=False)
-    
-    # 1. STANDINGS TABLE
-    st.subheader("Current Leaderboard")
     cols = st.columns(len(standings))
     for idx, row in standings.iterrows():
         cols[idx].metric(row['owner'], f"{row['pts']:,.1f}")
 
     st.divider()
 
-    # 2. TOP 10 SCORERS PER TEAM
+    # 2. TOP 10 SCORERS PER TEAM (Hiding row numbers)
     st.subheader("Top 10 Scorers per Team")
     col_left, col_right = st.columns(2)
-    
     owners = ["Daniel", "Tanner"]
+    
     for i, owner in enumerate(owners):
         with (col_left if i == 0 else col_right):
             st.markdown(f"**{owner}'s Top Scorers**")
@@ -126,15 +123,17 @@ def show_dashboard():
                       .reset_index()
                       .sort_values('pts', ascending=False)
                       .head(10))
-            st.table(top_10.rename(columns={'rider_name': 'Rider', 'pts': 'Total Points'}))
+            
+            st.dataframe(
+                top_10.rename(columns={'rider_name': 'Rider', 'pts': 'Total Points'}), 
+                use_container_width=True, 
+                hide_index=True
+            )
 
     st.divider()
 
     # 3. SCORING BREAKDOWN
     st.subheader("Point Source Analysis")
-    st.markdown("Breakdown of points earned across different categories.")
-    
-    # Group categories for cleaner look
     def group_cat(cat):
         if "Jersey" in cat: return "Jerseys"
         return cat
@@ -161,7 +160,13 @@ def show_analytics():
         st.subheader("The 'Hindsight' List")
         if not best_unpicked.empty:
             top_fa = best_unpicked[best_unpicked['pts'] > 0].head(10)
-            st.table(top_fa.rename(columns={'res_rider': 'Rider', 'pts': 'Potential Points'}))
+            st.dataframe(
+                top_fa.rename(columns={'res_rider': 'Rider', 'pts': 'Potential Points'}),
+                use_container_width=True,
+                hide_index=True
+            )
+        else:
+            st.write("No unpicked riders have scored points yet.")
 
 def show_rosters():
     st.title("👥 Detailed Rider Breakdowns")
