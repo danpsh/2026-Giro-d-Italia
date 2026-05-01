@@ -10,11 +10,11 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# Updated GC Scoring based on your specific 100-point scale
+# Updated GC Scoring: 3rd Place (30pts) = 3 Stage Wins (10pts each)
 SCORING = {
     "GC Standing": {
-        1: 100, 2: 80, 3: 60, 4: 50, 5: 40, 
-        6: 35, 7: 30, 8: 25, 9: 20, 10: 15
+        1: 50, 2: 40, 3: 30, 4: 25, 5: 20, 
+        6: 18, 7: 16, 8: 14, 9: 12, 10: 10
     },
     "Stage Result": {1: 10, 2: 9, 3: 8, 4: 7, 5: 6, 6: 5, 7: 4, 8: 3, 9: 2, 10: 1},
     "Jersey": {1: 15, 2: 10, 3: 5} 
@@ -84,7 +84,6 @@ def load_data():
 
         proc['pts'] = proc.apply(calc_pts, axis=1)
 
-        # Unpicked Logic
         unpicked = df_all_raw[~df_all_raw['match_name'].isin(r_df['match_name'].tolist())].copy()
         unpicked['pts'] = unpicked.apply(lambda x: calc_pts(x, False), axis=1)
         best_unpicked = unpicked.groupby('res_rider')['pts'].sum().reset_index().sort_values('pts', ascending=False)
@@ -101,11 +100,8 @@ proc_data, riders, current_stage, best_unpicked = load_data()
 
 def show_dashboard():
     st.title(f"🏆 2026 Giro Standings (Stage {current_stage})")
-    if proc_data.empty: 
-        st.info("No data available yet.")
-        return
+    if proc_data.empty: return
 
-    # Final Standings Calculation
     standings = proc_data.groupby('owner')['pts'].sum().reset_index().sort_values('pts', ascending=False)
     cols = st.columns(len(standings))
     for idx, row in standings.iterrows():
@@ -113,7 +109,6 @@ def show_dashboard():
 
     st.divider()
 
-    # Top 10 Scorers (Hidden index)
     st.subheader("Top 10 Scorers per Team")
     col_left, col_right = st.columns(2)
     owners = ["Daniel", "Tanner"]
@@ -125,20 +120,14 @@ def show_dashboard():
                       .reset_index()
                       .sort_values('pts', ascending=False)
                       .head(10))
-            st.dataframe(
-                top_10.rename(columns={'rider_name': 'Rider', 'pts': 'Total Points'}), 
-                use_container_width=True, 
-                hide_index=True
-            )
+            st.dataframe(top_10.rename(columns={'rider_name': 'Rider', 'pts': 'Total Points'}), use_container_width=True, hide_index=True)
 
     st.divider()
 
-    # Scoring Breakdown
     st.subheader("Point Source Analysis")
     def group_cat(cat):
         if "Jersey" in cat: return "Jerseys"
         return cat
-
     proc_data['Display Category'] = proc_data['Category'].apply(group_cat)
     source_breakdown = (proc_data.groupby(['owner', 'Display Category'])['pts']
                         .sum().unstack(fill_value=0).reset_index())
@@ -147,24 +136,15 @@ def show_dashboard():
 def show_analytics():
     st.title("📈 Draft & Market Analytics")
     tab1, tab2 = st.tabs(["Draft Pick Efficiency", "Best Unpicked Riders"])
-    
     with tab1:
-        st.subheader("Points Earned by Draft Slot")
         pick_eff = proc_data.groupby(['owner', 'team_pick'])['pts'].sum().reset_index()
         fig = px.bar(pick_eff, x="team_pick", y="pts", color="owner", barmode="group",
                      color_discrete_map={"Daniel": "red", "Tanner": "blue"})
-        fig.update_layout(xaxis=dict(tickmode='linear', dtick=1))
         st.plotly_chart(fig, use_container_width=True)
-
     with tab2:
-        st.subheader("The 'Hindsight' List")
         if not best_unpicked.empty:
-            top_fa = best_unpicked[best_unpicked['pts'] > 0].head(10)
-            st.dataframe(
-                top_fa.rename(columns={'res_rider': 'Rider', 'pts': 'Potential Points'}),
-                use_container_width=True,
-                hide_index=True
-            )
+            st.dataframe(best_unpicked[best_unpicked['pts'] > 0].head(10).rename(columns={'res_rider': 'Rider', 'pts': 'Potential Points'}),
+                         use_container_width=True, hide_index=True)
 
 def show_rosters():
     st.title("👥 Detailed Rider Breakdowns")
@@ -176,13 +156,9 @@ def show_rosters():
             owner_riders = riders[riders['owner'] == owner].merge(r_totals, on='rider_name', how='left').fillna(0).sort_values('pts', ascending=False)
             for _, r_row in owner_riders.iterrows():
                 with st.expander(f"**{r_row['rider_name']}** — {r_row['pts']:,.1f} pts"):
-                    details = proc_data[proc_data['rider_name'] == r_row['rider_name']][['Stage', 'Category', 'rank', 'pts']]
-                    st.dataframe(details, use_container_width=True, hide_index=True)
+                    st.dataframe(proc_data[proc_data['rider_name'] == r_row['rider_name']][['Stage', 'Category', 'rank', 'pts']], use_container_width=True, hide_index=True)
 
-# --- NAVIGATION ---
-pg = st.navigation([
-    st.Page(show_dashboard, title="Standings", icon="🏆"),
-    st.Page(show_analytics, title="Draft Analytics", icon="📈"),
-    st.Page(show_rosters, title="Rider Breakdowns", icon="👥")
-])
+pg = st.navigation([st.Page(show_dashboard, title="Standings", icon="🏆"), 
+                    st.Page(show_analytics, title="Draft Analytics", icon="📈"), 
+                    st.Page(show_rosters, title="Rider Breakdowns", icon="👥")])
 pg.run()
