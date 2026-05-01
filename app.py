@@ -10,8 +10,12 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
+# Updated GC Scoring based on your specific 100-point scale
 SCORING = {
-    "GC Standing": {1: 50, 2: 40, 3: 30, 4: 25, 5: 20, 6: 18, 7: 16, 8: 14, 9: 12, 10: 10},
+    "GC Standing": {
+        1: 100, 2: 80, 3: 60, 4: 50, 5: 40, 
+        6: 35, 7: 30, 8: 25, 9: 20, 10: 15
+    },
     "Stage Result": {1: 10, 2: 9, 3: 8, 4: 7, 5: 6, 6: 5, 7: 4, 8: 3, 9: 2, 10: 1},
     "Jersey": {1: 15, 2: 10, 3: 5} 
 }
@@ -67,7 +71,6 @@ def load_data():
         df_all_raw = pd.DataFrame(raw_results_list)
         df_all_raw['match_name'] = df_all_raw['res_rider'].apply(normalize_name)
 
-        # Scored Data (Fantasy Owners Only)
         proc = df_all_raw.merge(r_df[['match_name', 'owner', 'rider_name', 'team_pick', 'is_replacement']], on='match_name', how='inner')
 
         def calc_pts(row, apply_replacement=True):
@@ -99,10 +102,10 @@ proc_data, riders, current_stage, best_unpicked = load_data()
 def show_dashboard():
     st.title(f"🏆 2026 Giro Standings (Stage {current_stage})")
     if proc_data.empty: 
-        st.info("No data available in results.xlsx.")
+        st.info("No data available yet.")
         return
 
-    # 1. FINAL STANDINGS METRICS
+    # Final Standings Calculation
     standings = proc_data.groupby('owner')['pts'].sum().reset_index().sort_values('pts', ascending=False)
     cols = st.columns(len(standings))
     for idx, row in standings.iterrows():
@@ -110,11 +113,10 @@ def show_dashboard():
 
     st.divider()
 
-    # 2. TOP 10 SCORERS PER TEAM (Hiding row numbers)
+    # Top 10 Scorers (Hidden index)
     st.subheader("Top 10 Scorers per Team")
     col_left, col_right = st.columns(2)
     owners = ["Daniel", "Tanner"]
-    
     for i, owner in enumerate(owners):
         with (col_left if i == 0 else col_right):
             st.markdown(f"**{owner}'s Top Scorers**")
@@ -123,7 +125,6 @@ def show_dashboard():
                       .reset_index()
                       .sort_values('pts', ascending=False)
                       .head(10))
-            
             st.dataframe(
                 top_10.rename(columns={'rider_name': 'Rider', 'pts': 'Total Points'}), 
                 use_container_width=True, 
@@ -132,7 +133,7 @@ def show_dashboard():
 
     st.divider()
 
-    # 3. SCORING BREAKDOWN
+    # Scoring Breakdown
     st.subheader("Point Source Analysis")
     def group_cat(cat):
         if "Jersey" in cat: return "Jerseys"
@@ -141,7 +142,6 @@ def show_dashboard():
     proc_data['Display Category'] = proc_data['Category'].apply(group_cat)
     source_breakdown = (proc_data.groupby(['owner', 'Display Category'])['pts']
                         .sum().unstack(fill_value=0).reset_index())
-    
     st.dataframe(source_breakdown, use_container_width=True, hide_index=True)
 
 def show_analytics():
@@ -165,8 +165,6 @@ def show_analytics():
                 use_container_width=True,
                 hide_index=True
             )
-        else:
-            st.write("No unpicked riders have scored points yet.")
 
 def show_rosters():
     st.title("👥 Detailed Rider Breakdowns")
